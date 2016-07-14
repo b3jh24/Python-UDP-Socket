@@ -107,6 +107,8 @@ def run():
     for more, we send the current chunk we pulled out. Then we go to the next chunk. Once we get to the last group of data to be sent (a group being all the chunks we send before an ACK)
     then signal that this is the last group we're gonna send, and finish off the transfer.
     '''
+    
+    print "Nigga we made it!"
     keepGoing = True
     start = time.time()
     while(totalNumSent < getNumChunksToSend() and keepGoing):
