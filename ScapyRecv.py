@@ -4,7 +4,11 @@ Created on Jun 16, 2016
 @author: bhornak
 '''
 from _socket import SO_RCVBUF
+<<<<<<< HEAD
 #from scapy.all import *
+=======
+from scapy.all import *
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
 import socket
 
 
@@ -31,7 +35,11 @@ tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 tcp_sock.connect((TCP_IP, tcp_port))
 tcp_sock.send("GET_NUM_CHUNKS")
 numChunksToRecv = tcp_sock.recv(tcp_buf)
+<<<<<<< HEAD
 #print "Expecting to receive ",numChunksToRecv        #--KEEP
+=======
+# print "Expecting to receive ",numChunksToRecv        --KEEP
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
 # tcp_sock.close()                                    --NO GOOD
 
 
@@ -63,5 +71,9 @@ except socket.timeout:
     sock.close()
     tcp_sock.close()
     #print "File received!"  # --KEEP
+<<<<<<< HEAD
     #print "A total of " + str(actualNumChunks) +" chunks were received"            #--KEEP
+=======
+    # print "A total of " + str(actualNumChunks) +" chunks were received"            --KEEP
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
     

@@ -46,7 +46,10 @@ TCP_sock.bind((tcp_host, tcp_port))
 TCP_sock.listen(1)
 
 conn, tcp_addr = TCP_sock.accept()
+<<<<<<< HEAD
 conn.settimeout(1)
+=======
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
 while 1:
     clientReq = conn.recv(tcp_buf)
     if not clientReq: break
@@ -104,9 +107,14 @@ def run():
             If, after x seconds, we haven't received an ACK, we will assume packet was lost, and queue it for retransmission
             '''
             
+<<<<<<< HEAD
             
             if(numSent >= 13):
                 conn.settimeout(.05)
+=======
+            if(numSent >= 100):
+                conn.settimeout(2)
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
                 try:
                     ACK = conn.recv(tcp_buf)
                     #print "ACK: "+ACK
@@ -116,6 +124,7 @@ def run():
                         print "ACK is NONE!"
                 except socket.timeout:
                     ACK = None
+<<<<<<< HEAD
                     #===========================================================
                     # Note that a timeout here simply means that the client hasn't gotten enough packets to send an ACK.
                     # that means packets were dropped along the way. So, if we frequently get timeout issues, it's debatable as to 
@@ -125,11 +134,16 @@ def run():
                     #===========================================================
                     print "Socket timed out (after "+str(count) +" loops) because we didn't get an ACK, let's send him some more packets"
                     #conn.settimeout(5)
+=======
+                    print "Socket timed out (after "+str(count) +" loops) because we didn't get an ACK, let's send him some more packets"
+                    conn.settimeout(5)
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
                     while (ACK is not "I got 20 packets"):
                         """
                         Continue with the main loop, and send more packets, 
                         until we get something back (i.e. the client got another 20 packets)
                         """
+<<<<<<< HEAD
                         bigDataChunk  = packetQueue[local_ID] + packetQueue[local_ID] + packetQueue[local_ID]
                         s.sendto(bigDataChunk, addr)
                         try:
@@ -139,12 +153,21 @@ def run():
                             pass
                             #print "Socket just timed out again...fuck me"
                        
+=======
+                        print "Sending more packets..."
+                        s.sendto(packetQueue[local_ID], addr)
+                        ACK = conn.recv(tcp_buf)
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
                         if ACK:
                             print "This is the ACK: ", ACK
                             break    
                         else:
+<<<<<<< HEAD
                             pass
                             #print "Need to send more packets yet"                          
+=======
+                            print "Need to send more packets yet"                          
+>>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
                     else:
                         print "We got an ACK: " + ACK
                         

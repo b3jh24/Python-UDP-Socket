@@ -3,19 +3,12 @@ Created on Jun 15, 2016
 
 @author: bhornak
 '''
-<<<<<<< HEAD
 #from scapy.all import *
 import socket
 import os
 from _socket import SO_SNDBUF
 import math
 import time
-=======
-from scapy.all import *
-import socket
-import os
-from _socket import SO_SNDBUF
->>>>>>> b5b5f8ffd9bafc1ff702838a1a2cb99aef17c29d
 
 '''
 Testing with data from file -- see if we can give ID numbers, and detect 
@@ -89,6 +82,8 @@ def read_in_chunks(infile, chunk_size=buf):
 def run():
     didntRecvACK = False
     local_ID = 0
+    numSent = 0
+    count = 0
     start = time.time()
     for chunk in read_in_chunks(f):
 #         pack = IP(dst=host, id=local_ID)/UDP()/chunk
@@ -98,7 +93,7 @@ def run():
         if(s.sendto(chunk,addr) and s.sendto(str(local_ID),addr)):
             #print "sending ..."
             #print "\t\t ID: ",local_ID
-            
+            numSent += 1
             '''
             Store the packet being sent in the appropriate spot
             Indices are arranged by packet localID, and each spot contains the packets load (as a string)
@@ -111,29 +106,36 @@ def run():
             We won't send another packet until we've received the ACK from the client
             If, after x seconds, we haven't received an ACK, we will assume packet was lost, and queue it for retransmission
             '''
-            conn.settimeout(2)
-            try:
-                ACK = conn.recv(tcp_buf)
-                #print "ACK: "+ACK
-                if(ACK is None):
-                    print "ACK is None"
-                    didntRecvACK = True
-            except socket.timeout:
-                print "Socket Timeout - didn'tRecvAck = ",didntRecvACK
-                didntRecvACK = True
-                conn.settimeout(None)
-                #ACK = None
-                 
-            #If the ACK we got was incorrect, or we didn't receive an ACK, we need to keep retransmitting that packet until we get an ACK
-            while(ACK !=  str(local_ID) or didntRecvACK is True):
-                if(s.sendto(packetQueue[local_ID],addr) and s.sendto(str(local_ID),addr)):
-                    print "Resending packet #",local_ID
+            
+            if(numSent >= 5):
+                conn.settimeout(2)
+                try:
                     ACK = conn.recv(tcp_buf)
-                    print "ACK (after resend): "+ACK
-                    if (ACK):
-                        print "ACK RECV - "+ACK
-                        didntRecvACK = False
-                        break
+                    #print "ACK: "+ACK
+                    if ACK:
+                        numSent = 0
+                    elif (ACK is None):
+                        print "ACK is None"
+                        didntRecvACK = True
+                except socket.timeout:
+                    print "Socket timed out because we didn't get an ACK, let's send him some more packets"
+                    conn.settimeout(2)
+                    while (ACK is None):
+                        """
+                        Continue with the main loop, and send more packets, 
+                        until we get something back (i.e. the client got another 20 packets)
+                        """
+                        continue        
+                    else:
+                        print "We got an ACK: " + ACK
+                        '''
+                        Compare this ACK (likely the packets received) against what we know we sent. 
+                        There is probably some discrepancy that will need to be addressed. That is to say, he is probably missing some
+                        packets, and we're gonna have to resend them now, or make a list to send them later
+                        '''
+                count += 1
+                numSent = 0
+            
             local_ID += 1
     end = time.time()
     s.close()      
@@ -145,6 +147,7 @@ def run():
     fsize = os.path.getsize("file.txt")/10e8
     rate = fsize/(end-start)
     print "Rate: " + str(rate) +" GB/s"
+    print "Count: ", count
 
 if (__name__ == '__main__'):
     run()
