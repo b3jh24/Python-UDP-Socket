@@ -17,7 +17,7 @@ s = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 host ="10.102.46.218"   #Address of the guy hosting the UDP socket - in this case it's Andrew
 port = 5005
 addr = (host,port)
-s.setsockopt(socket.SOL_SOCKET,socket.SO_SNDBUF, 185760) #50485760
+s.setsockopt(socket.SOL_SOCKET,socket.SO_SNDBUF, 50485760) #50485760
 
 
 tcp_host = "10.102.46.218"  #Address of the guy (me) hosting the TCP socket - in this case it's Brian
@@ -25,7 +25,7 @@ tcp_port = 7007
 tcp_buf = 2048
 
 
-f = open('file.txt', 'rb')
+f = open('nums.txt', 'rb')
 
 class BadChunkRequest(Exception):
     def __init__(self):
@@ -37,7 +37,7 @@ def getNumChunksToSend():
     The client will use this to know how many blocks it should receive (useful for data verification)
     """
     #TODO change file name from file.txt to be whatever the data/file actually is
-    size = os.path.getsize("file.txt")
+    size = os.path.getsize("nums.txt")
     numToRound = float(size)/float(buf)  #Use float point math because int's wont give correct number
     return math.ceil(numToRound)         #File size/chunk size = number of chunks - rounded up
 
@@ -117,13 +117,11 @@ def run():
     for more, we send the current chunk we pulled out. Then we go to the next chunk. Once we get to the last group of data to be sent (a group being all the chunks we send before an ACK)
     then signal that this is the last group we're gonna send, and finish off the transfer.
     '''
-    keepGoing = True
     start = time.time()
-    #while(totalNumSent < getNumChunksToSend() and keepGoing):
-        #print "Titties"
     forTime = time.time()
     for chunk in read_in_chunks(f,buf):  
         if(numSent == howManyToSend):
+            numSent = 0
             '''
             We've done our part, and sent the number of chunks he wanted, now we wait to hear from him
             We should expect to hear from him, because once he times out (i.e. after we sent our data, and he stopped receiving it)
@@ -179,9 +177,9 @@ def run():
                 '''
                 He got all of our chunks, let's continue sending things
                 '''
-                #print "client got our chunks"
-                numSent = 0
+                print "client got our chunks"
                 sendLoop += 1
+                #numSent = 0
         if(s.sendto(chunk,addr) and s.sendto(str(local_ID),addr)):
             try:
                 packetQueue[local_ID - (sendLoop * howManyToSend)] = chunk
@@ -189,25 +187,28 @@ def run():
                 print "\nIndex: ", (local_ID - (sendLoop * howManyToSend))
                 print "Send Loop: ",sendLoop
                 print "ID: ", local_ID
+                print "NumSent: ",numSent
                 sleep(3)
             numSent += 1
             local_ID += 1
             totalNumSent += 1
     else:
-        keepGoing = False
         endFor = time.time()
     end = time.time()
-    s.close()      
-    f.close()
-    conn.close()
-    TCP_sock.close()
-    print "Total Num Sent: ",totalNumSent
-    print "File sent!"
-    print "Time: " + str(round(end-start,4)) + "s"
-    fsize = os.path.getsize("file.txt")/10e8
-    rate = fsize/(end-start)
-    print "Rate: " + str(round(rate,3)) +" GB/s = " + str(round(rate*8,3))+" Gb/s"
-    print "Loops: ", sendLoop
-    print "For Loop Time: ", (endFor-forTime)
+    if(conn.recv(tcp_buf) == "I got all the data"):
+        s.close()      
+        f.close()
+        conn.close()
+        TCP_sock.close()
+        print "Total Num Sent: ",totalNumSent
+        print "File sent!"
+        print "Time: " + str(round(end-start,4)) + "s"
+        fsize = os.path.getsize("file.txt")/10e8
+        rate = fsize/(end-start)
+        print "Rate: " + str(round(rate,3)) +" GB/s = " + str(round(rate*8,3))+" Gb/s"
+        print "Loops: ", sendLoop
+        print "For Loop Time: ", (endFor-forTime)
+    else:
+        print "Client didn't get everything yet"
 if (__name__ == '__main__'):
     run()
