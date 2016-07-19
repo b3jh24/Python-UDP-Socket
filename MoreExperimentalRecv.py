@@ -37,12 +37,11 @@ print "Expecting to receive ", numChunksToRecv  # --KEEP
 #Convert numChunksToRecv to an int (from a string)
 numChunksToRecv = float(numChunksToRecv)
 numChunksToRecv = int(numChunksToRecv)
-sock.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF, 185760)   #50485760
+sock.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF, 50485760)   #50485760
 numRecv = 0  # The number of chunks we've received so far (reset after each ACK)
 totalNumRecv = 0  # The total number of chunks we've received so far, never resets. Used to know when we've got everything
 canRecv = False
-f = open('expRecv2.txt', 'wb')
-numChunksRequested = 100  # The number of chunks we're gonna ask for
+numChunksRequested = 50  # The number of chunks we're gonna ask for
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
 '''
@@ -60,6 +59,10 @@ totalNumLoops = numChunksToRecv / numChunksRequested        #The total number of
 totalNumBytesToRecv = numChunksToRecv * buf                 #The total number of bytes we expect to receive by the end of the transfer
 progressMultiplier = 1                                      #Range 1-20: Used for figuring out how much data we've received as a percentage of the total amount we should expect
                                                             #Every 5% we will notify
+
+#The number of "bad" packets. A bad packet is a packet that was lost, or had a missing ID, or something of the sort
+global badPacket
+badPacket = 0
 
 def write_to_file(path, writeBuffer, terminate_signal):
     """Write the datagram chunks to a file in a separate thread, so long as data is provided
@@ -144,6 +147,17 @@ def RecvResentPackets(writeBuffer, numBeingResent):
                 print "We got the " + str(numResentRecv) + " resent packets"
                 resentLoop +=1
                 return 1
+            if(totalNumRecv == int(numChunksToRecv)):
+                # We've got all the chunks we were supposed to get for the whole transfer, let's close the socket and files
+                tcp_sock.send("I got all the data")
+                sock.close()
+                tcp_sock.close()
+                print "File received, we got " + str(totalNumRecv) + " chunks"
+                time.sleep(.5)
+                gb = round(os.path.getsize("t1.txt")/10e8,2)
+                tb = round(os.path.getsize("t1.txt")/10e11,4)
+                print "Total data: " + str(os.path.getsize("t1.txt")) + " bytes = " + str(gb) + "GB = " + str(tb) + "TB"
+                terminate_signal.set()
     except socket.timeout:
         print "We didn't get all the packets that were resent, gotta get them back somehow"
         print "But we did get a total of " + str(totalNumRecv) + " chunks ("+str(numResentRecv)+" were resent packets)"
@@ -152,9 +166,10 @@ def RecvResentPackets(writeBuffer, numBeingResent):
 
 
 def transfer_statistics(progMult, badPacks, totalPacksRecv):
+    print "-------Transfer statistics-------"
     print str(progMult*5) + "% of data received"
-    print "-----Transfer loss statistics-----"
-    print "Total number of lost packets: "+ str(badPacks) + " ("+ str( (badPacks/totalPacksRecv) * 100 )+"% of total transfer)\n"
+    percentLost = float(badPacks/totalPacksRecv)
+    print "Total number of lost packets: "+ str(badPacks) + " ("+ str(percentLost )+"% of total transfer)\n"
     
 ########################################
 ########################################
@@ -166,10 +181,7 @@ def Recv():
     global chunkIDsRecv
     global progressMultiplier
     global loop
-    
-    #The number of "bad" packets. A bad packet is a packet that was lost, or had a missing ID, or something of the sort
-    badPacket = 0
-    
+        
     try:
         while(canRecv):
             sock.settimeout(2)
@@ -193,6 +205,7 @@ def Recv():
                     progressMultiplier += 1
             else:
                 logging.warning("Something got fucked up - either lost data packet, or missing ID number")
+                global badPacket
                 badPacket += 1
            
             if(numRecv == numChunksRequested):
@@ -205,6 +218,7 @@ def Recv():
                 continue
             if(totalNumRecv == int(numChunksToRecv)):
                 # We've got all the chunks we were supposed to get for the whole transfer, let's close the socket and files
+                tcp_sock.send("I got all the data")
                 sock.close()
                 tcp_sock.close()
                 print "File received, we got " + str(totalNumRecv) + " chunks"
