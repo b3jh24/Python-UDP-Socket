@@ -10,6 +10,8 @@ import time
 import collections
 import threading
 import os
+import datetime
+import sys
 
 UDP_IP = "10.102.46.218"  # Address of the guy (me) hosting the UDP socket (in this case it's Andrew) 
 UDP_PORT = 5005
@@ -28,7 +30,6 @@ sock.bind((UDP_IP, UDP_PORT))
 '''
 Create TCP socket to make basic communication requests
 '''
-# FIXME: Need to add socket.SO_REUSEADDR to allow socket to be reused, but this needs privileges
 tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 tcp_sock.connect((TCP_IP, tcp_port))
 tcp_sock.send("GET_NUM_CHUNKS")
@@ -41,7 +42,7 @@ sock.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF, 50485760)   #50485760
 numRecv = 0  # The number of chunks we've received so far (reset after each ACK)
 totalNumRecv = 0  # The total number of chunks we've received so far, never resets. Used to know when we've got everything
 canRecv = False
-numChunksRequested = 50  # The number of chunks we're gonna ask for
+numChunksRequested = 5000  # The number of chunks we're gonna ask for
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
 '''
@@ -64,6 +65,69 @@ progressMultiplier = 1                                      #Range 1-20: Used fo
 global badPacket
 badPacket = 0
 
+def configure_resume(oldLogPath):
+    """Parse the log file from a previous, interrupted transfer and set up accordingly
+    
+    Args:
+        oldLogPath -  a string for the file path of the log file
+    """
+    prevTransferLogFile = open(oldLogPath, "r")
+        
+    '''
+    Parse the log file for the following:
+        -mostRecentPacket (3rd line)
+        -percent of transfer completed (4th line)
+        -number of chunks left to be sent (5th line)
+    '''
+    i = 0
+    for line in prevTransferLogFile:
+        if i == 2:
+            lastIDRecv = int(line)
+        elif i == 3:
+            percentCompleted = int(line)
+        elif i == 4:
+            numberOfChunksLeft = int(line)
+        i+=1
+    
+def parse_commandline():
+    '''Set up the case for picking up from where we last left off - indicated by the presence of command line arguments (probably implemented via a GUI later)'''
+    if len(sys.argv) > 1:
+        operation = sys.argv[1]     #The first parameter after the file name
+        if operation == "RESUME":
+            '''
+            User wants to pick up from where we last left off, that changes things
+            '''
+            oldLogPath = sys.argv[2]
+            configure_resume(oldLogPath)
+        
+class TerribleTransfer(Exception):
+    def __init__(self):
+        Exception.__init__(self, "Losing a lot of packets -- best to restart")
+        
+def SaveProgress(mostRecentID,percentComplete,numChunksRemaining):
+    """Create a log file that can be used to pick up a transfer from where it last left off
+    
+    Args:
+        mostRecentID -  the ID number of the most recent (original) packet that we received
+        percentComplete - an exact percentage of the transfer that was complete
+        numChunksRemaining - the number of chunks that we will need to receive once we've picked up the transfer
+        
+    File Format:
+        Timestamp
+        
+        mostRecentID
+        percentComplete
+        numChunksRemaining
+    """
+    timestamp = "{:%Y-%m-%d %H:%M:%S}".format(datetime.datetime.now())
+    logFilePath = "transfer_progress_"+timestamp+".log"
+    progressFile = open(logFilePath, "w")
+    progressFile.write(timestamp+"\n\n")
+    progressFile.write(mostRecentID+"\n")
+    progressFile.write(str(percentComplete)+"\n")
+    progressFile.write(str(numChunksRemaining))
+    progressFile.close()
+
 def write_to_file(path, writeBuffer, terminate_signal):
     """Write the datagram chunks to a file in a separate thread, so long as data is provided
     
@@ -81,9 +145,7 @@ def write_to_file(path, writeBuffer, terminate_signal):
             else:
                 out_file.write(data)  # write a chunk
     print "File closed"
-    
-    
-    
+        
 chunkIDsRecv = [0] * (numChunksRequested)  # List of IDs received 
 '''
 The  number of loops we've gone through. A loop is defined as every time we've gotten as many packets as we've asked for (either received originally, or retransmitted).
@@ -140,7 +202,7 @@ def RecvResentPackets(writeBuffer, numBeingResent):
                     time.sleep(4)
                 writeBuffer.appendleft(dataChunk)  # append to LEFT of writeBuffer so we can write the resent data
             else:
-                logging.warning("The resend got fucked up...")
+                logging.warning("The resend got messed up...")
             if(numResentRecv == numBeingResent):
                 # We've got the packets we asked for, let's alert the server to this fact
                 tcp_sock.send("I got the 60 packets I requested, you can send some more")
@@ -163,8 +225,6 @@ def RecvResentPackets(writeBuffer, numBeingResent):
         print "But we did get a total of " + str(totalNumRecv) + " chunks ("+str(numResentRecv)+" were resent packets)"
         return 0
 
-
-
 def transfer_statistics(progMult, badPacks, totalPacksRecv):
     print "-------Transfer statistics-------"
     print str(progMult*5) + "% of data received"
@@ -181,6 +241,7 @@ def Recv():
     global chunkIDsRecv
     global progressMultiplier
     global loop
+    mostRecentID = 0
         
     try:
         while(canRecv):
@@ -196,6 +257,7 @@ def Recv():
                 '''
                 chunkIDsRecv[int(packID) - (loop*numChunksRequested)] = 1
                 writeBuffer.appendleft(dataChunk)  # append to LEFT of write
+                mostRecentID = packID
                 '''
                 Provide a progress/status update to the operator
                 TODO: We also want to let the server know that we've gotten this much data too
@@ -216,6 +278,14 @@ def Recv():
                 numRecv = 0
                 chunkIDsRecv = [0] * numChunksRequested     #Clear out the cache
                 continue
+            if badPacket >= numChunksToRecv*numChunksRequested*.1:
+                '''
+                If we've lost 10% of our total data, then it's been a bad transfer (Note: badPackets is a measure of packets, NOT chunks, hence the multiplication)
+                '''
+                percentComplete = round(totalNumRecv/numChunksToRecv*100,2)
+                numChunksRemaining = numChunksToRecv - totalNumRecv
+                SaveProgress(mostRecentID, percentComplete, numChunksRemaining)
+                raise TerribleTransfer;
             if(totalNumRecv == int(numChunksToRecv)):
                 # We've got all the chunks we were supposed to get for the whole transfer, let's close the socket and files
                 tcp_sock.send("I got all the data")
@@ -233,9 +303,8 @@ def Recv():
         Something happened, and we didn't get all the packets we requested in time (we timed out).
         Let's not let the server panic, and tell him what happened,and how many packets we got so far.
         '''
+        #TODO: Remove print used for debugging purposes
         print "Timed out, but have no fear, we got " + str(numRecv) + " chunks"
-        # The number of chunks I'm still waiting on
-        numINeed = numChunksRequested - numRecv    
         canRecv = False
         '''
         Now we have to figure out what packets we're missing (by checking our list), and telling the server
@@ -266,4 +335,5 @@ def Recv():
             print "FIXME"
         
 if __name__ == '__main__':
+    parse_commandline()
     Recv()        
