@@ -65,46 +65,12 @@ progressMultiplier = 1                                      #Range 1-20: Used fo
 global badPacket
 badPacket = 0
 
-def configure_resume(oldLogPath):
-    """Parse the log file from a previous, interrupted transfer and set up accordingly
-    
-    Args:
-        oldLogPath -  a string for the file path of the log file
-    """
-    prevTransferLogFile = open(oldLogPath, "r")
-        
-    '''
-    Parse the log file for the following:
-        -mostRecentPacket (3rd line)
-        -percent of transfer completed (4th line)
-        -number of chunks left to be sent (5th line)
-    '''
-    i = 0
-    for line in prevTransferLogFile:
-        if i == 2:
-            lastIDRecv = int(line)
-        elif i == 3:
-            percentCompleted = int(line)
-        elif i == 4:
-            numberOfChunksLeft = int(line)
-        i+=1
-    
-def parse_commandline():
-    '''Set up the case for picking up from where we last left off - indicated by the presence of command line arguments (probably implemented via a GUI later)'''
-    if len(sys.argv) > 1:
-        operation = sys.argv[1]     #The first parameter after the file name
-        if operation == "RESUME":
-            '''
-            User wants to pick up from where we last left off, that changes things
-            '''
-            oldLogPath = sys.argv[2]
-            configure_resume(oldLogPath)
-        
 class TerribleTransfer(Exception):
     def __init__(self):
-        Exception.__init__(self, "Losing a lot of packets -- best to restart")
-        
-def SaveProgress(mostRecentID,percentComplete,numChunksRemaining):
+        Exception.__init__(self, "Losing a lot of packets -- best to restart\nExiting transfer now...")
+        time.sleep(1)
+        sys.exit()
+def SaveProgress(mostRecentID,percentComplete,numChunksRemaining, mostRecentLoop):
     """Create a log file that can be used to pick up a transfer from where it last left off
     
     Args:
@@ -118,6 +84,7 @@ def SaveProgress(mostRecentID,percentComplete,numChunksRemaining):
         mostRecentID
         percentComplete
         numChunksRemaining
+        mostRecentLoop
     """
     timestamp = "{:%Y-%m-%d %H:%M:%S}".format(datetime.datetime.now())
     logFilePath = "transfer_progress_"+timestamp+".log"
@@ -125,45 +92,16 @@ def SaveProgress(mostRecentID,percentComplete,numChunksRemaining):
     progressFile.write(timestamp+"\n\n")
     progressFile.write(mostRecentID+"\n")
     progressFile.write(str(percentComplete)+"\n")
-    progressFile.write(str(numChunksRemaining))
+    progressFile.write(str(numChunksRemaining+"\n"))
+    progressFile.write(str(mostRecentLoop))
     progressFile.close()
-
-def write_to_file(path, writeBuffer, terminate_signal):
-    """Write the datagram chunks to a file in a separate thread, so long as data is provided
     
-    Args:
-        path - the location of the file to write to
-        writeBuffer - the list (if you will) containing the data to be written
-        terminate_signal - an indicator that we've finished receiving data and do no not expect more data to write
-    """
-    with open(path, 'wb') as out_file:  # close file automatically on exit
-        while not terminate_signal.is_set() or writeBuffer:  # go on until end is signaled
-            try:
-                data = writeBuffer.pop()  # pop from RIGHT end of writeBuffer
-            except IndexError:
-                time.sleep(0.5)  # wait for new data
-            else:
-                out_file.write(data)  # write a chunk
-    print "File closed"
-        
-chunkIDsRecv = [0] * (numChunksRequested)  # List of IDs received 
-'''
-The  number of loops we've gone through. A loop is defined as every time we've gotten as many packets as we've asked for (either received originally, or retransmitted).
-Essentially, a completed loop is when we send an ACK. We use this to keep store things in lists properly because ID numbers don't necessarily correspond to list indices after the first
-loop/round
-'''  
-loop = 0
-writeBuffer = collections.deque()  # writeBuffer for reading/writing
-terminate_signal = threading.Event()  # shared signal
-threads = [
-    threading.Thread(target= write_to_file, kwargs=dict(
-    path="t1.txt",
-    writeBuffer=writeBuffer,
-    terminate_signal=terminate_signal
-  ))]
-threads[0].start()
-
-
+def transfer_statistics(progMult, badPacks, totalPacksRecv):
+    print "-------Transfer statistics-------"
+    print str(progMult*5) + "% of data received"
+    percentLost = float(badPacks/totalPacksRecv)
+    print "Total number of lost packets: "+ str(badPacks) + " ("+ str(percentLost )+"% of total transfer)\n"
+    
 def RecvResentPackets(writeBuffer, numBeingResent):
     """Receive packets that were resent (separate from initial receiving loop.
     
@@ -224,25 +162,30 @@ def RecvResentPackets(writeBuffer, numBeingResent):
         print "We didn't get all the packets that were resent, gotta get them back somehow"
         print "But we did get a total of " + str(totalNumRecv) + " chunks ("+str(numResentRecv)+" were resent packets)"
         return 0
-
-def transfer_statistics(progMult, badPacks, totalPacksRecv):
-    print "-------Transfer statistics-------"
-    print str(progMult*5) + "% of data received"
-    percentLost = float(badPacks/totalPacksRecv)
-    print "Total number of lost packets: "+ str(badPacks) + " ("+ str(percentLost )+"% of total transfer)\n"
     
-########################################
-########################################
-
-def Recv():
+def Recv(lastIDRecv,percentCompleted,numberOfChunksLeft,mostRecentLoop):
     global canRecv
     global numRecv
     global totalNumRecv
     global chunkIDsRecv
     global progressMultiplier
+    global numChunksToRecv
     global loop
     mostRecentID = 0
+    
+    #If we're attempting to resume a transfer
+    if lastIDRecv != -1 and percentCompleted != -1 and numberOfChunksLeft != -1 and mostRecentLoop != -1:
+        #Reconfigure the parameters and statistics of the new (resumed) transfer based on where the previous one finished
+        totalNumRecv = lastIDRecv+1
+        progressMultiplier = percentCompleted / 5           #TODO: Check this math
+        numChunksToRecv = numberOfChunksLeft
+        loop = mostRecentLoop
         
+        #Fill out the list of received IDs (in the event that our previous transfer ended mid-chunk)
+        nearestRoundedDownMult = (lastIDRecv / numChunksRequested) * numChunksRequested
+        numberToFill = lastIDRecv - nearestRoundedDownMult + 1
+        for i in xrange(0,numberToFill):
+            chunkIDsRecv[i] = 1
     try:
         while(canRecv):
             sock.settimeout(2)
@@ -284,7 +227,7 @@ def Recv():
                 '''
                 percentComplete = round(totalNumRecv/numChunksToRecv*100,2)
                 numChunksRemaining = numChunksToRecv - totalNumRecv
-                SaveProgress(mostRecentID, percentComplete, numChunksRemaining)
+                SaveProgress(mostRecentID, percentComplete, numChunksRemaining, loop)
                 raise TerribleTransfer;
             if(totalNumRecv == int(numChunksToRecv)):
                 # We've got all the chunks we were supposed to get for the whole transfer, let's close the socket and files
@@ -333,7 +276,95 @@ def Recv():
             #TODO: Figure out what we do with the missing resent data?
             #We didn't get all of the resent data, now what the fuck do we do?
             print "FIXME"
+
+
+def configure_resume(oldLogPath):
+    """Parse the log file from a previous, interrupted transfer and set up accordingly
+    
+    Args:
+        oldLogPath -  a string for the file path of the log file
+    """
+    prevTransferLogFile = open(oldLogPath, "r")
+        
+    '''
+    Parse the log file for the following:
+        -mostRecentPacket (3rd line)
+        -percent of transfer completed (4th line)
+        -number of chunks left to be sent (5th line)
+        -most recent loop (6th line)
+    '''
+    i = 0
+    for line in prevTransferLogFile:
+        if i == 2:
+            lastIDRecv = int(line)
+        elif i == 3:
+            percentCompleted = int(line)
+        elif i == 4:
+            numberOfChunksLeft = int(line)
+        elif i == 5:
+            mostRecentLoop = int(line)
+        i+=1
+    Recv(lastIDRecv,percentCompleted,numberOfChunksLeft,mostRecentLoop)
+    
+def parse_commandline():
+    '''Set up the case for picking up from where we last left off - indicated by the presence of command line arguments (probably implemented via a GUI later)
+    
+    Return:
+        0 - indicates a fresh transfer
+        1 - indicates a resumed transfer
+    '''
+    if len(sys.argv) > 1:
+        operation = sys.argv[1]     #The first parameter after the file name
+        if operation == "RESUME":
+            '''
+            User wants to pick up from where we last left off, that changes things
+            '''
+            oldLogPath = sys.argv[2]
+            configure_resume(oldLogPath)
+            return 1
+    return 0
+
+def write_to_file(path, writeBuffer, terminate_signal):
+    """Write the datagram chunks to a file in a separate thread, so long as data is provided
+    
+    Args:
+        path - the location of the file to write to
+        writeBuffer - the list (if you will) containing the data to be written
+        terminate_signal - an indicator that we've finished receiving data and do no not expect more data to write
+    """
+    openMode = "wb"
+    if parse_commandline():
+        openMode = "ab"
+    
+    print "OpenMode: ",openMode
+    with open(path, openMode) as out_file:  # close file automatically on exit
+        while not terminate_signal.is_set() or writeBuffer:  # go on until end is signaled
+            try:
+                data = writeBuffer.pop()  # pop from RIGHT end of writeBuffer
+            except IndexError:
+                time.sleep(0.5)  # wait for new data
+            else:
+                out_file.write(data)  # write a chunk
+    print "File closed"
+        
+chunkIDsRecv = [0] * (numChunksRequested)  # List of IDs received 
+'''
+The  number of loops we've gone through. A loop is defined as every time we've gotten as many packets as we've asked for (either received originally, or retransmitted).
+Essentially, a completed loop is when we send an ACK. We use this to keep store things in lists properly because ID numbers don't necessarily correspond to list indices after the first
+loop/round
+'''  
+loop = 0
+writeBuffer = collections.deque()  # writeBuffer for reading/writing
+terminate_signal = threading.Event()  # shared signal
+threads = [
+    threading.Thread(target= write_to_file, kwargs=dict(
+    path="t1.txt",
+    writeBuffer=writeBuffer,
+    terminate_signal=terminate_signal
+  ))]
+threads[0].start()
+
         
 if __name__ == '__main__':
     parse_commandline()
-    Recv()        
+    Recv(-1,-1,-1,-1)        
