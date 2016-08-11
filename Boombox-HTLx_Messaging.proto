@@ -1,0 +1,56 @@
+syntax = "proto2";
+
+package HTL_Messaging_schema1;
+
+message serverConfig{
+	enum MessageID{
+		ID = 1;
+	}
+	required uint32 tcpPort = 1;
+	required uint32 udpPort = 2;
+	required uint32 udpMac = 3;
+}
+
+message SessionData{
+	enum MessageID{
+		ID = 2;
+	}
+	required uint32 bytesPerLBA = 1;
+	required uint32 maxBlocksPerPacket = 2;
+	required uint32 totalBlocks = 3;
+	required uint32 firstBlock = 4;
+}
+
+message ReqTransfer{
+	enum MessageID{
+		ID = 3;
+	}
+	required uint32 transferID = 1;
+	required uint32 startingBlockAddr = 2;
+	required uint32 blocksInTrans = 3;
+}
+
+message RequestCompleted{
+	enum MessageID{
+		ID = 5;
+	}
+	//The Transfer ID of the request that was completed
+	required uint32 transferID = 1;
+}
+
+message AttemptReconnect{
+	enum MessageID{
+		ID = 6;
+	}
+	required uint32 bytesPerLBA = 1;
+	required uint32 maxBlocksPerPacket = 2;
+	required uint32 totalBlocks = 3;
+	required uint32 firstBlock = 4;
+}
+
+message SchemaAgreement{
+	enum MessageID{
+		ID = 7;
+	}
+	required uint32 schemaVersion = 1;
+}
