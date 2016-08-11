@@ -25,7 +25,7 @@ tcp_port = 7007
 tcp_buf = 2048
 
 
-f = open('nums.txt', 'rb')
+f = open('a.txt', 'rb')
 
 class BadChunkRequest(Exception):
     def __init__(self):
@@ -37,7 +37,7 @@ def getNumChunksToSend():
     The client will use this to know how many blocks it should receive (useful for data verification)
     """
     #TODO change file name from file.txt to be whatever the data/file actually is
-    size = os.path.getsize("nums.txt")
+    size = os.path.getsize("a.txt")
     numToRound = float(size)/float(buf)  #Use float point math because int's wont give correct number
     return math.ceil(numToRound)         #File size/chunk size = number of chunks - rounded up
 
